@@ -1,22 +1,36 @@
 ---
 title: "Predicting One Family Dwellings Sale Prices in New York City"
-subtitle: "ECON4170 : Data Science Project"
-author: "Zoé JULLIARD--BONNOUVRIEE"
+subtitle: "Data Science Project"
+author: "JULLIARD--BONNOUVRIEE Zoé"
 date: "`2024, December`"
 output:
   html_document:
-    fig_width: 3
-    fig_height: 2.5
+    fig_width: 6
+    fig_height: 5
   pdf_document:
-    fig_width: 3
-    fig_height: 2.5
+    fig_width: 6
+    fig_height: 5
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+```{r include=FALSE}
+# Libraries 
+library(readxl)
+library(dplyr)
+library(magrittr)
+library(stringr)
+library(tidyr)
+library(readr)
+library(ggplot2)
+library(purrr)
+library(broom)
+library(tidymodels)
+library(xgboost)
+library(yardstick)
+```
 
-# Predicting One Family Dwellings Sale Prices in New York City
 
 ## Introduction
 
@@ -35,24 +49,17 @@ The project will aim to answer two main questions :
 We begin by loading the datasets for each borough into R. Note that the data structure is identical for all five files, which makes it possible to combine all of the data into a single file, to facilitate ease of use. We check its structure and summary statistics to understand the data we will be working with, then clean the data, including handling missing values and standardizing variables.
 
 ```{r echo=TRUE}
-# Load packages required if needed
-install.packages("tidyverse")
-install.packages("magrittr")
-install.packages("stringr")
-
-library(readxl)
-library(dplyr)
 
 # Skip the first 4 rows which are not relevant headers in the datasets
-bronx <- read_excel("Les Etudes/Oslo/Projet_DataScience/rollingsales_bronx.xlsx", skip = 4)
-brooklyn <- read_excel("Les Etudes/Oslo/Projet_DataScience/rollingsales_brooklyn.xlsx", skip = 4)
-manhattan <- read_excel("Les Etudes/Oslo/Projet_DataScience/rollingsales_manhattan.xlsx", skip = 4)
-staten_island <- read_excel("Les Etudes/Oslo/Projet_DataScience/rollingsales_statenisland.xlsx", skip = 4)
-queens <- read_excel("Les Etudes/Oslo/Projet_DataScience/rollingsales_queens.xlsx", skip = 4)
+bronx <- read_excel("rollingsales_bronx.xlsx", skip = 4)
+brooklyn <- read_excel("rollingsales_brooklyn.xlsx", skip = 4)
+manhattan <- read_excel("rollingsales_manhattan.xlsx", skip = 4)
+staten_island <- read_excel("rollingsales_statenisland.xlsx", skip = 4)
+queens <- read_excel("rollingsales_queens.xlsx", skip = 4)
 
 # Bind tibbles into one for future analysis
 NYC_property_sales <- bind_rows(bronx, brooklyn, manhattan, staten_island, queens)
-head(NYC_property_sales)
+#head(NYC_property_sales)
 summary(NYC_property_sales)
 
 # Delete individual tibbles to free up memory
@@ -68,8 +75,6 @@ NYC_property_sales <- NYC_property_sales |>
     BOROUGH == 4 ~ "Queens"))
 
 # For clarity when calling a variable, replace column names to lower case and convert CAPITALIZED columns to Title Case
-library(magrittr)
-library(stringr)
 
 NYC_property_sales <- NYC_property_sales |>
   janitor::clean_names() |>
@@ -80,8 +85,7 @@ NYC_property_sales <- NYC_property_sales |>
 
 To avoid biased the results, we remove duplicates (we select only distinct observations) and we delete the unnecessary column "easement" that contains no data. Because we are predicting sale price on the basis of size, we delete sale records with a "sale_price" less than a threshold of \$10,000 (we assumed these deals to be between family members), delete "gross_square_feet" and "land_square_feet" values of 0, and drop NA values in columns of interest. Then we arrange observations alphabetically by borough and neighborhood to have a better insight.
 
-```{r}
-library(tidyr)
+```{r echo=TRUE}
 NYC_property_sales <- NYC_property_sales |>
   distinct() |>
   select(-easement) |>
@@ -92,17 +96,16 @@ NYC_property_sales <- NYC_property_sales |>
 
 We create a new file with our cleaned dataset to make data access easier for future analysis, and load it into a tibble.
 
-```{r}
-library(readr)
-write_csv(NYC_property_sales, "Les Etudes/Oslo/Projet_DataScience/Cleaned_data_project.csv")
-NYC_property_sales <- read_csv("Les Etudes/Oslo/Projet_DataScience/cleaned_data_project.csv")
+```{r echo=TRUE}
+write_csv(NYC_property_sales, "Cleaned_data_project.csv")
+NYC_property_sales <- read_csv("Cleaned_data_project.csv")
 ```
 
 ## II. Bivariate relationships exploration
 
 A first glimpse of the data reveals that there are currently over 20,447 sale records in the dataset. However, in this project, we will only work with the "One Family Dwellings" building class, represented by all the "A." of the "building_class_at_present" variable, which is the most common in the tibble. We then have 8,858 observations.
 
-```{r}
+```{r echo=TRUE}
 glimpse(NYC_property_sales)
 sort(table(NYC_property_sales$building_class_at_present))
 
@@ -113,8 +116,7 @@ head(NYC_dwellings)
 
 Now that the data is cleaned up, we can explore using scatter plots the relationship between one family dwellings sale price and gross square footage, examining the direction (positive or negative), linearity, and strength of the relationship. We below create plots both for all five New York City boroughs combined and for each borough individually. We add some limits for the x and y axis to make the plot clearer.
 
-```{r}
-library(ggplot2)
+```{r echo=TRUE}
 ggplot(NYC_dwellings, aes(x = gross_square_feet, y = sale_price, color = borough)) +
   geom_point(alpha = 0.5) +
   scale_y_continuous(labels = scales::comma, limits = c(0, 20000000)) + 
@@ -129,7 +131,7 @@ ggplot(NYC_dwellings, aes(x = gross_square_feet, y = sale_price, color = borough
 
 For all five New York City boroughs combined, we observe a general trend : the sale price of a One Family Dwelling is increasing as its size increases. There is then a positive relationship between those two. Moreover, the data follows a somewhat linear pattern. There is no obvious curvature with the shape of the data, but there is a fair amount of spread, or dispersion, that becomes more pronounced with an increase in size.
 
-```{r}
+```{r echo=TRUE}
 # Plot by borough to have a better insight of the relationship in each one
 ggplot(NYC_dwellings, aes(x = gross_square_feet, y = sale_price)) +
   geom_point(alpha = 0.6) +
@@ -152,7 +154,7 @@ To do this, we first sort the sale records in each borough by sale price, from h
 
 For instance, if we consider the case of Manhattan, the highest sale price was \$72,500,000 while the second highest was \$38,250,000, which represent a difference of \$34,250,000. Comparing with the difference of \$10,250,000 between the second and third highest, this gap is too great to ignore.
 
-```{r}
+```{r echo=TRUE}
 # Copy of the tibble to not loose any information before removing any sale records
 NYC_dwellings_original <- NYC_dwellings  
 
@@ -182,7 +184,7 @@ rm(outliers_Bronx, outliers_Manhattan, outliers_Queens)
 
 The following graph gives a more accurate view of our data in each boroughs.
 
-```{r}
+```{r echo=TRUE}
 ggplot(NYC_dwellings, aes(x = gross_square_feet, y = sale_price)) +
   geom_point(alpha = 0.6) +
   geom_smooth(method = "lm", se = FALSE, color = "blue") +
@@ -200,17 +202,12 @@ Separate regression models are created for each borough to assess how the size-p
 
 To compare coefficient estimates, we follow a broom and tidyverse workflow with four steps. First, we nest the tibble by the categorical variable "borough" using the nest() function from tidyr, creating grouped tibbles for each borough. The NYC_dwellings tibble is collapsed from 8,854 observations to only 5.
 
-```{r}
+```{r echo=TRUE}
 # NYC_dwellings is collapsed from 8,854 observations to only 5
-library(purrr)
-library(broom)
-
 NYC_nested <- NYC_dwellings |>
   group_by(borough) |>
   nest()
 
-# Inspect the format 
-NYC_nested
 # View first few rows for Bronx
 print(NYC_nested$data[[1]])
 ```
@@ -219,7 +216,7 @@ Next, we use the map() function from purrr to fit a linear model to each individ
 
 Below are the linear regression statistics for Staten Island. As the p-value of the "gross_square_feet" coefficient is lower than the significant level 0, meaning that the null-hypothesis (H0: no relationship) can be rejected, we can deduce that the slope coefficient is significant. Moreover, the R-squared value suggests that gross_square_feet is a relatively strong predictor of sale_price, explaining 53% of the variability in sale_price.
 
-```{r}
+```{r echo=TRUE}
 NYC_nested <- NYC_nested |>
   mutate(lin_model = map(data, ~lm(sale_price ~ gross_square_feet, data = .x)))
 
@@ -229,7 +226,7 @@ summary(NYC_nested$lin_model[[5]])
 
 The next step is to convert these linear model summary statistics into a tidy format. We now have a new variable, "tidy_coef," which holds the tidy coefficient estimates for each of the five boroughs, currently organized in five separate dataframes. Shown below are the coefficient estimates for the Bronx.
 
-```{r}
+```{r echo=TRUE}
 # Generate a tidy dataframe of coefficient estimates that includes confidence intervals
 NYC_nested <- NYC_nested |>
   mutate(tidy_coef = map(lin_model, ~tidy(.x, conf.int = TRUE)))
@@ -240,7 +237,7 @@ print(NYC_nested$tidy_coef[[1]])
 
 Using unnest(), we can now unnest the "tidy_coef" variable to combine the results into one tidy dataframe that contains the coefficient estimates for each of New York City's five boroughs, making it easy to view all borough-level estimates together. Our primary focus is on the slope, which indicates the change in "sale_price" for each unit increase in "gross_square_feet". To isolate the slope estimate, we can apply the following filter.
 
-```{r}
+```{r echo=TRUE}
 # Unnest to a tidy dataframe of coefficient estimates
 # Filter to return the slope estimate only
 NYC_slope_estimates <- NYC_nested |>
@@ -261,10 +258,7 @@ In this last part, we provide three regression models : linear model, random for
 
 To perform this, we begin by splitting the dataset into two, one for training and one for testing, and we set a recipe. As the primary interest is the effect of gross_square_feet on sale_price, then limiting the recipe to gross_square_feet will help ensure the model focuses on that specific relationship.
 
-```{r}
-library(tidymodels)
-library(xgboost)
-
+```{r echo=TRUE}
 # Split the data
 set.seed(1234)
 NYC_split <- initial_split(NYC_dwellings_original, prop = 0.8)
@@ -278,7 +272,7 @@ rec <- recipe(sale_price ~ gross_square_feet, data = NYC_train) |>
 
 Afterwards, we proceed to train the models on the training set. The linear regression model is a good baseline model for understanding the linear relationship between gross_square_feet and sale_price. The random forest model is beneficial for capturing complex relationships between those two that might not be fully linear, while XGBoost is an advanced boosting algorithm that can often capture non-linear patterns as well.
 
-```{r}
+```{r echo=TRUE}
 # Train model
 lm_spec <- linear_reg() |>
   set_engine("lm")
@@ -294,7 +288,7 @@ xgboost_spec <- boost_tree() |>
 
 When the training is done, we set a workflow for each model and fit the models to the data. Using the tidy function, we observe for instance that "the gross_square_feet" estimate of the fitted linear model is 1061. It is significant as the p-value is lower than a significant value of 0.01. Then, an increase of one unit of square footage implies on average an increase of \$1061 in the NYC boroughs sale price.
 
-```{r}
+```{r echo=TRUE}
 # Set up of a common recipe for all workflows  
 wf <- workflow() |>
   add_recipe(rec)
@@ -320,7 +314,7 @@ tidy(lm_fit) |>
 
 Those results allow us to compute the predictions of the "gross_square_feet" coefficients using the testing sample. However, each prediction is currently a separate object. To compare each model’s predictions to the true values in NYC_test, we join them into a single dataframe with the actual values of sale_prices.
 
-```{r}
+```{r echo=TRUE}
 # Predict ------
 lm_pred <- predict(lm_fit, NYC_test) |>
   rename("pred_lm" = .pred)    
@@ -339,9 +333,8 @@ head(predictions)
 
 This format makes calculation of performance metrics easier. As follow, we compute the Root Mean Squared Error (RMSE) for each model to assess the models' accuracy. A larger difference signifies a greater gap between the predicted and observed values, indicating a poor fit for the regression model. Conversely, a smaller RMSE suggests a better-performing model.
 
-```{r}
+```{r echo=TRUE}
 # Calculate RMSE for each model
-library(yardstick)
 predictions |> 
   metrics(truth = sale_price, estimate = pred_lm) |> 
   filter(.metric == "rmse")
